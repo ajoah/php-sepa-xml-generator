@@ -9,10 +9,18 @@
 namespace SEPA;
 
 /**
+ * Class DirectDebitTransactionInterface
+ * @package SEPA
+ */
+interface DirectDebitTransactionInterface {
+	public function checkIsValidTransaction();
+	public function getSimpleXMLElementTransaction();
+}
+/**
  * Class SepaDirectDebitTransactions
  * @package SEPA
  */
-class DirectDebitTransaction extends PaymentInfo implements TransactionInterface {
+class DirectDebitTransaction extends PaymentInfo implements DirectDebitTransactionInterface {
 
 	/**
 	 * BIC Code not provided
@@ -85,6 +93,10 @@ class DirectDebitTransaction extends PaymentInfo implements TransactionInterface
 	 * @var string
 	 */
 	private $directDebitInvoice = '';
+	
+	private $originalMandateIdentification = '';
+	private $originalDebtorAccount = '';
+	private $originalDebtorAgent = '';
 
 	/**
 	 * @return string
@@ -286,6 +298,40 @@ class DirectDebitTransaction extends PaymentInfo implements TransactionInterface
 		return true;
 	}
 
+	
+	public function setOriginalMandateIdentification($mandatId){
+		$this->originalMandateIdentification = $mandatId;
+		return $this;
+	}
+	public function getOriginalMandateIdentification(){
+		return $this->originalMandateIdentification;
+	}
+	
+	public function setOriginalDebtorAccount($IBAN){
+		$IBAN = $this->removeSpaces($IBAN);
+
+		if ( !$this->checkIBAN($IBAN) ) {
+
+			throw new \Exception(ERROR_MSG_DD_IBAN . $this->getInstructionIdentification().' , IBAN: '.$IBAN);
+		}
+		$this->originalDebtorAccount = $IBAN;
+		return $this;
+	}
+	
+	public function getOriginalDebtorAccount(){
+		return $this->originalDebtorAccount;
+		
+	}
+	
+	public function setOriginalDebtorAgent($agent){
+		$this->originalDebtorAgent = $agent;
+		return $this;
+	}
+	
+	public function getOriginalDebtorAgent(){
+		return $this->originalDebtorAgent;
+	}
+	
 	/**
 	 * @return \SimpleXMLElement
 	 */
@@ -294,7 +340,11 @@ class DirectDebitTransaction extends PaymentInfo implements TransactionInterface
 		//Direct Debit Transaction data
 		$directDebitTransactionInformation = new \SimpleXMLElement('<DrctDbtTxInf></DrctDbtTxInf>');
 		$paymentIdentification = $directDebitTransactionInformation->addChild('PmtId');
-		$paymentIdentification->addChild('InstrId', $this->getInstructionIdentification());
+		
+		if($this->getInstructionIdentification()){
+			$paymentIdentification->addChild('InstrId', $this->getInstructionIdentification());
+		}
+		
 		$paymentIdentification->addChild('EndToEndId', $this->getEndToEndIdentification());
 
 		$directDebitTransactionInformation->addChild('InstdAmt', $this->getInstructedAmount())
@@ -304,6 +354,21 @@ class DirectDebitTransaction extends PaymentInfo implements TransactionInterface
 		$mandateRelatedInformation = $directDebitTransaction->addChild('MndtRltdInf');
 		$mandateRelatedInformation->addChild('MndtId', $this->getMandateIdentification());
 		$mandateRelatedInformation->addChild('DtOfSgntr', $this->getDateOfSignature());
+		
+		if(!empty($this->getOriginalMandateIdentification()) || !empty($this->getOriginalDebtorAgent()) || !empty($this->getOriginalDebtorAccount())){
+			$mandateRelatedInformation->addChild('AmdmntInd','true');
+			$amendmentInformationDetails = $mandateRelatedInformation->addChild('AmdmntInfDtls');
+			if(!empty($this->originalMandateIdentification)){
+				$amendmentInformationDetails->addChild('OrgnlMndtId',$this->getOriginalMandateIdentification());
+			}
+			if(!empty($this->getOriginalDebtorAgent())){
+				$amendmentInformationDetails->addChild('OrgnlDbtrAgt')->addChild('FinInstnId')->addChild('Othr')->addChild('Id',$this->getOriginalDebtorAgent());
+			}elseif(!empty($this->getOriginalDebtorAccount())){
+				$amendmentInformationDetails->addChild('OrgnlDbtrAcct')->addChild('Id')->addChild('IBAN', $this->getOriginalDebtorAccount());
+			}
+		}else{
+			$mandateRelatedInformation->addChild('AmdmntInd','false');
+		}
 
 		if ( $this->getBIC() ) {
 			$debtorAgent  = $directDebitTransactionInformation->addChild('DbtrAgt')
